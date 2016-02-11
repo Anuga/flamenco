@@ -1,5 +1,4 @@
 import os
-import tempfile
 from flask import Flask
 from flask import jsonify
 from flask.ext.sqlalchemy import SQLAlchemy
@@ -13,24 +12,18 @@ app = Flask(__name__)
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-#RENDER_PATH = "render"
+# Initial configuration
+from application import config_base
+app.config.from_object(config_base.Config)
 
-try:
-    from application import config
-    app.config['SQLALCHEMY_DATABASE_URI'] = config.Config.SQLALCHEMY_DATABASE_URI
-    app.config['TMP_FOLDER']= config.Config.TMP_FOLDER
-    app.config['THUMBNAIL_EXTENSIONS']= config.Config.THUMBNAIL_EXTENSIONS
-    app.config['SERVER_STORAGE'] = config.Config.SERVER_STORAGE
-except ImportError:
+# If we are in a Docker container, override with some new defaults
+if os.environ.get('IS_DOCKER'):
+    from application import config_docker
+    app.config.from_object(config_docker.Config)
 
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI='sqlite:///{0}'.format(
-            os.path.join(os.path.dirname(__file__), '../server.sqlite')),
-        TMP_FOLDER=tempfile.gettempdir(),
-        THUMBNAIL_EXTENSIONS=set(['png']),
-        SERVER_STORAGE='{0}/static/storage'.format(
-            os.path.join(os.path.dirname(__file__)))
-    )
+# If a custom config file is specified, further override the config
+if os.environ.get('FLAMENCO_SERVER_CONFIG'):
+    app.config.from_envvar('FLAMENCO_SERVER_CONFIG')
 
 api = Api(app)
 

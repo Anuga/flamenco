@@ -9,6 +9,7 @@ from requests.exceptions import ConnectionError
 
 from flask import request
 from flask import send_from_directory
+from flask import send_file
 from flask.ext.restful import Resource
 from flask.ext.restful import reqparse
 from flask.ext.restful import marshal_with
@@ -65,7 +66,7 @@ task_fields = {
 
 class TaskFileApi(Resource):
     def get(self, job_id):
-        """Check if the Manager already have the file
+        """Check if the Manager already has the file
         """
         managerstorage = app.config['MANAGER_STORAGE']
         jobpath = os.path.join(managerstorage, str(job_id))
@@ -163,9 +164,9 @@ class TaskCompiledApi(Resource):
                 f.write("locked")
 
             r = requests.get(
-                #'http://{0}/jobs/file/{1}'.format(
-                'http://{0}/static/storage/{1}/{2}/jobfile_{2}.zip'.format(
-                    app.config['FLAMENCO_SERVER'], task['project_id'], task['job_id']),
+                'http://{0}/jobs/file/{1}'.format(
+                #'http://{0}/static/storage/{1}/{2}/jobfile_{2}.zip'.format(
+                    app.config['FLAMENCO_SERVER'], task['job_id']),
                 stream=True
             )
 
@@ -251,7 +252,7 @@ class TaskManagementApi(Resource):
     @marshal_with(task_fields)
     def post(self):
         args = parser.parse_args()
-        task={
+        task = {
             'priority' : args['priority'],
             'settings' : args['settings'],
             'task_id' : args['task_id'],
@@ -471,9 +472,9 @@ class TaskZipApi(Resource):
         """Given a job_id returns the task file
         """
         managerstorage = app.config['MANAGER_STORAGE']
-        jobpath = os.path.join(managerstorage, str(job_id))
-        return send_from_directory(
-            jobpath, 'jobfile_{0}.zip'.format(job_id))
+        filename = 'jobfile_{0}.zip'.format(job_id)
+        jobfile = os.path.join(managerstorage, str(job_id), filename)
+        return send_file(jobfile)
 
 
 class TaskSupZipApi(Resource):

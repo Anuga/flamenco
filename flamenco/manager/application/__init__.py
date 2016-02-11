@@ -21,73 +21,18 @@ migrate = Migrate(app, db)
 from helpers import http_request
 from application.modules.settings.model import Setting
 
-try:
-    from application import config
-    app.config['TMP_FOLDER']= config.Config.TMP_FOLDER
-    app.config['THUMBNAIL_EXTENSIONS']= config.Config.THUMBNAIL_EXTENSIONS
-    app.config['MANAGER_STORAGE'] = config.Config.MANAGER_STORAGE
-    app.config.update(
-        FLAMENCO_SERVER=config.Config.FLAMENCO_SERVER,
-        SQLALCHEMY_DATABASE_URI= config.Config.SQLALCHEMY_DATABASE_URI,
-    )
+# Initial configuration
+from application import config_base
+app.config.from_object(config_base.Config)
 
-    if not config.Config.IS_PRIVATE_MANAGER:
-        """try:
-            server_settings = http_request(app.config['FLAMENCO_SERVER'], '/settings', 'get')
-            app.config.update(
-                BLENDER_PATH_LINUX=server_settings['blender_path_linux'],
-                BLENDER_PATH_OSX=server_settings['blender_path_osx'],
-                BLENDER_PATH_WIN=server_settings['blender_path_win'],
-                SETTINGS_PATH_LINUX=server_settings['render_settings_path_linux'],
-                SETTINGS_PATH_OSX=server_settings['render_settings_path_osx'],
-                SETTINGS_PATH_WIN=server_settings['render_settings_path_win']
-            )
-        except ConnectionError:
-            logging.error("The server {0} seems be unavailable.".format(app.config['FLAMENCO_SERVER']))
-            exit(3)
-        except KeyError:
-            logging.error("Please, configure Flamenco Paths browsing Dashboard->Server->Settings")
-            exit(3)"""
-    else:
-        app.config.update(
-            BLENDER_PATH_LINUX=config.Config.BLENDER_PATH_LINUX,
-            BLENDER_PATH_OSX=config.Config.BLENDER_PATH_OSX,
-            BLENDER_PATH_WIN=config.Config.BLENDER_PATH_WIN,
-            SETTINGS_PATH_LINUX=config.Config.SETTINGS_PATH_LINUX,
-            SETTINGS_PATH_OSX=config.Config.SETTINGS_PATH_OSX,
-            SETTINGS_PATH_WIN=config.Config.SETTINGS_PATH_WIN
-        )
+# If we are in a Docker container, override with some new defaults
+if os.environ.get('IS_DOCKER'):
+    from application import config_docker
+    app.config.from_object(config_docker.Config)
 
-except ImportError:
-    """If a config is not defined, we use the default settings, importing the
-    BLENDER_PATH and SETTINGS_PATH from the server.
-    """
-    logging.error("No config.py file found, importing config from Server.")
-
-    app.config['FLAMENCO_SERVER'] = 'localhost:9999'
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(os.path.dirname(__file__), '../manager.sqlite')
-    app.config['TMP_FOLDER'] = tempfile.gettempdir()
-    app.config['THUMBNAIL_EXTENSIONS'] = set(['png'])
-    app.config['MANAGER_STORAGE'] = '{0}/static/storage'.format(
-        os.path.join(os.path.dirname(__file__)))
-
-    """try:
-        server_settings = http_request(app.config['FLAMENCO_SERVER'], '/settings', 'get')
-        app.config.update(
-            BLENDER_PATH_LINUX=server_settings['blender_path_linux'],
-            BLENDER_PATH_OSX=server_settings['blender_path_osx'],
-            BLENDER_PATH_WIN=server_settings['blender_path_win'],
-            SETTINGS_PATH_LINUX=server_settings['render_settings_path_linux'],
-            SETTINGS_PATH_OSX=server_settings['render_settings_path_osx'],
-            SETTINGS_PATH_WIN=server_settings['render_settings_path_win']
-        )
-    except ConnectionError:
-        logging.error("The server {0} seems be unavailable.".format(app.config['FLAMENCO_SERVER']))
-        exit(3)
-    except KeyError:
-        logging.error("Please, configure Flamenco Paths browsing Dashboard->Server->Settings")
-        exit(3)"""
-
+# If a custom config file is specified, further override the config
+if os.environ.get('FLAMENCO_MANAGER_CONFIG'):
+    app.config.from_envvar('FLAMENCO_MANAGER_CONFIG')
 
 api = Api(app)
 
@@ -125,7 +70,7 @@ from modules.job_types import JobTypeApi
 api.add_resource(JobTypeListApi, '/job-types')
 api.add_resource(JobTypeApi, '/job-types/<string:name>')
 
-def register_manager(host, name, has_virtual_workers):
+def register_manager(port, name, has_virtual_workers):
     """This is going to be an HTTP request to the server with all the info for
     registering the render node. This is called by the runserver script.
     """
@@ -138,11 +83,11 @@ def register_manager(host, name, has_virtual_workers):
             connection.request("GET", "/managers")
             break
         except socket.error:
-            print ("Cant connect with Server, retrying...")
+            print ("Can't connect with Server, retrying...")
         time.sleep(1)
 
     params = dict(
-        host=host,
+        port=port,
         name=name,
         has_virtual_workers=has_virtual_workers)
 
@@ -154,6 +99,7 @@ def register_manager(host, name, has_virtual_workers):
     r = http_request(app.config['FLAMENCO_SERVER'], '/managers', 'post', params=params)
 
     # If we don't find one, we proceed to create it, using the server reponse
+    # TODO handle case when token exists on the manager, but not on the server
     if not token:
         token = Setting(name='token', value=r['token'])
         db.session.add(token)
